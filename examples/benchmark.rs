@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium};
+use smoltcp::phy::{wait as phy_wait, DelayInjector, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
@@ -33,7 +33,21 @@ fn client(kind: Client) {
     let start = Instant::now();
 
     let mut processed = 0;
+    let mut prev_time = start;
+    let mut prev_processed = 0;
     while processed < AMOUNT {
+        {
+            let end = Instant::now();
+            let elapsed = (end - prev_time).total_millis() as f64 / 1000.0;
+            if elapsed > 1. {
+                println!(
+                    "throughput: {:.3} Mbps",
+                    (processed - prev_processed) as f64 / elapsed / 0.125e6
+                );
+                prev_time = end;
+                prev_processed = processed;
+            }
+        }
         let length = cmp::min(buffer.len(), AMOUNT - processed);
         let result = match kind {
             Client::Reader => stream.read(&mut buffer[..length]),
@@ -67,6 +81,7 @@ fn main() {
     let (mut opts, mut free) = utils::create_options();
     utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
+    opts.optopt("", "delay", "Add delay to device", "DELAY");
     free.push("MODE");
 
     let mut matches = utils::parse_options(&opts, free);
@@ -74,6 +89,7 @@ fn main() {
     let fd = device.as_raw_fd();
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    // let mut device = DelayInjector::new(device, Duration::from_millis(100));
     let mode = match matches.free[0].as_ref() {
         "reader" => Client::Reader,
         "writer" => Client::Writer,
@@ -113,6 +129,7 @@ fn main() {
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
+        // device.poll(timestamp);
         iface.poll(timestamp, &mut device, &mut sockets);
 
         // tcp:1234: emit data
@@ -151,14 +168,14 @@ fn main() {
             }
         }
 
-        match iface.poll_at(timestamp, &sockets) {
-            Some(poll_at) if timestamp < poll_at => {
-                phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
-            }
-            Some(_) => (),
-            None => {
-                phy_wait(fd, default_timeout).expect("wait error");
-            }
-        }
+        // match iface.poll_at(timestamp, &sockets) {
+        //     Some(poll_at) if timestamp < poll_at => {
+        //         phy_wait(fd, Some(poll_at - timestamp)).expect("wait error");
+        //     }
+        //     Some(_) => (),
+        //     None => {
+        //         phy_wait(fd, default_timeout).expect("wait error");
+        //     }
+        // }
     }
 }

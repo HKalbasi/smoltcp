@@ -96,6 +96,7 @@ use crate::time::Instant;
 ))]
 mod sys;
 
+mod delay_injector;
 mod fault_injector;
 mod fuzz_injector;
 #[cfg(feature = "alloc")]
@@ -116,6 +117,7 @@ mod tuntap_interface;
 ))]
 pub use self::sys::wait;
 
+pub use self::delay_injector::DelayInjector;
 pub use self::fault_injector::FaultInjector;
 pub use self::fuzz_injector::{FuzzInjector, Fuzzer};
 #[cfg(feature = "alloc")]
