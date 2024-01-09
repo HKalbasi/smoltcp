@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, DelayInjector, Device, Medium};
+use smoltcp::phy::{DelayInjector, Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
@@ -87,21 +87,21 @@ fn main() {
     let mut matches = utils::parse_options(&opts, free);
     let device = utils::parse_tuntap_options(&mut matches);
     let fd = device.as_raw_fd();
-    let mut device =
-        utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
-    // let mut device = DelayInjector::new(device, Duration::from_millis(100));
+    let device = utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
+    let mut device = DelayInjector::new(device, Duration::from_millis(100));
     let mode = match matches.free[0].as_ref() {
         "reader" => Client::Reader,
         "writer" => Client::Writer,
         _ => panic!("invalid mode"),
     };
 
-    let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
-    let tcp1_tx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
+    const TCP_BUFFER_SIZE: usize = 65535;
+    let tcp1_rx_buffer = tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]);
+    let tcp1_tx_buffer = tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]);
     let tcp1_socket = tcp::Socket::new(tcp1_rx_buffer, tcp1_tx_buffer);
 
-    let tcp2_rx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
-    let tcp2_tx_buffer = tcp::SocketBuffer::new(vec![0; 65535]);
+    let tcp2_rx_buffer = tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]);
+    let tcp2_tx_buffer = tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]);
     let tcp2_socket = tcp::Socket::new(tcp2_rx_buffer, tcp2_tx_buffer);
 
     let mut config = match device.capabilities().medium {
@@ -129,7 +129,7 @@ fn main() {
     let mut processed = 0;
     while !CLIENT_DONE.load(Ordering::SeqCst) {
         let timestamp = Instant::now();
-        // device.poll(timestamp);
+        device.poll(timestamp);
         iface.poll(timestamp, &mut device, &mut sockets);
 
         // tcp:1234: emit data

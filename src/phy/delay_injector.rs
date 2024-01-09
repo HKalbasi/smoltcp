@@ -46,6 +46,9 @@ impl<D: Device> DelayInjector<D> {
         while let Some(front) = self.tx_queue.front() {
             if front.1 < timestamp {
                 let (buf, _) = self.tx_queue.pop_front().unwrap();
+                if buf.is_empty() {
+                    continue;
+                }
                 if let Some(token) = self.inner.transmit(timestamp) {
                     <D::TxToken<'_> as phy::TxToken>::consume(token, buf.len(), |x| {
                         x[..buf.len()].copy_from_slice(&buf);
@@ -60,7 +63,7 @@ impl<D: Device> Device for DelayInjector<D> {
     type RxToken<'a> = RxToken
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<D::TxToken<'a>>
+    type TxToken<'a> = TxToken<'a>
     where
         Self: 'a;
 
@@ -85,7 +88,9 @@ impl<D: Device> Device for DelayInjector<D> {
     }
 
     fn transmit(&mut self, timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        todo!()
+        self.tx_queue.push_back((vec![], timestamp));
+        let buf = &mut self.tx_queue.back_mut().unwrap().0;
+        Some(TxToken { buf })
     }
 }
 
@@ -109,19 +114,18 @@ impl phy::RxToken for RxToken {
 }
 
 #[doc(hidden)]
-pub struct TxToken<Tx: phy::TxToken> {
-    token: Tx,
+pub struct TxToken<'a> {
+    buf: &'a mut Vec<u8>,
 }
 
-impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<Tx> {
+impl<'a> phy::TxToken for TxToken<'a> {
     fn consume<R, F>(mut self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        self.token.consume(len, |mut buf| f(buf))
+        self.buf.extend(std::iter::repeat(0).take(len));
+        f(&mut self.buf)
     }
 
-    fn set_meta(&mut self, meta: PacketMeta) {
-        self.token.set_meta(meta);
-    }
+    fn set_meta(&mut self, _meta: PacketMeta) {}
 }
